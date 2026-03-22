@@ -180,11 +180,11 @@ export function AuthPanel() {
                 </div>
 
                 <div className="auth-form">
-                  <input className="field" onChange={(event) => setEmail(event.target.value)} placeholder="\u90ae\u7bb1" type="email" value={email} />
+                  <input className="field" onChange={(event) => setEmail(event.target.value)} placeholder={"\u90ae\u7bb1"} type="email" value={email} />
                   <input
                     className="field"
                     onChange={(event) => setPassword(event.target.value)}
-                    placeholder="\u5bc6\u7801\uff08\u81f3\u5c11 6 \u4f4d\uff09"
+                    placeholder={"\u5bc6\u7801\uff08\u81f3\u5c11 6 \u4f4d\uff09"}
                     type="password"
                     value={password}
                   />
