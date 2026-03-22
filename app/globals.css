@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   --bg: #f6efe6;
   --bg-alt: #efe4d1;
   --panel: rgba(255, 250, 242, 0.82);
@@ -603,11 +603,20 @@ textarea {
   background: rgba(255, 255, 255, 0.16);
 }
 
-.drawer,
-.modal {
+.drawer {
   position: fixed;
   inset: 0;
   z-index: 40;
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  overflow-y: auto;
 }
 
 .drawer__backdrop,
@@ -627,13 +636,11 @@ textarea {
 }
 
 .modal__panel {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: min(760px, calc(100vw - 40px));
+  position: relative;
+  z-index: 1;
+  width: min(760px, 100%);
   max-height: calc(100vh - 40px);
   overflow: auto;
-  transform: translate(-50%, -50%);
   border-radius: 28px;
   border: 1px solid var(--line);
   background: var(--panel-strong);
@@ -1092,7 +1099,7 @@ textarea {
 }
 
 .auth-modal {
-  max-width: 480px;
+  width: min(480px, 100%);
 }
 
 .auth-switcher {
@@ -1163,3 +1170,4 @@ textarea {
     justify-content: center;
   }
 }
+
