@@ -10,7 +10,7 @@ CookStack 是一个面向家庭厨房场景的 AI 饮食管理原型，用来把
 - 周计划排餐与差值清单计算
 - 一键标记“已烹饪”并自动扣减库存
 - 通过硅基流动 API 将自然语言食谱解析成结构化数据
-- 通过 Supabase 同步库存、食谱、采购清单和周计划
+- 通过 Supabase 增量同步库存、食谱、采购清单和周计划
 
 ## 技术栈
 
@@ -67,7 +67,7 @@ SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 1. 在 Supabase SQL Editor 里直接执行这份 SQL。
 2. 如果你已经装了 Supabase CLI，就在本地项目中执行迁移。
 
-当前应用会按下面的优先级工作：
+当前应用会按下面的优先级工作，并通过动作式 API 增量写入 Supabase：
 
 1. 如果检测到 `SUPABASE_URL` 和 `SUPABASE_SERVICE_ROLE_KEY`，应用会优先从 Supabase 读取数据。
 2. 如果云端还没有数据，会把你现有的本地数据自动同步上去。
@@ -96,3 +96,4 @@ git push
 ## License
 
 本项目使用 Apache-2.0 许可证，详见 [`LICENSE`](./LICENSE)。
+

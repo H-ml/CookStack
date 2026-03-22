@@ -24,10 +24,10 @@ import {
   upsertInventoryItem,
 } from "@/components/kitchen-utils";
 import { coerceKitchenState } from "@/lib/kitchen-state";
+import type { ConsumeMode, RemoteKitchenAction } from "@/lib/kitchen-remote-actions";
 
 const STORAGE_KEY = "pantry-pilot-state-v2";
 
-type ConsumeMode = "all" | "half" | "custom";
 type StorageMode = "local" | "supabase";
 
 type KitchenAction =
@@ -42,7 +42,7 @@ type KitchenAction =
   | { type: "set-analysis"; analysis: RecipeAnalysis | null }
   | { type: "add-recipe"; recipe: RecipeRecord }
   | { type: "delete-recipe"; id: string }
-  | { type: "schedule-recipe"; recipeId: string; day: WeekDay; meal: MealSlot }
+  | { type: "schedule-recipe"; recipeId: string; day: WeekDay; meal: MealSlot; entryId?: string }
   | { type: "remove-plan-entry"; id: string }
   | { type: "mark-plan-cooked"; id: string }
   | { type: "dismiss-expiring"; ids: string[] };
@@ -236,7 +236,7 @@ function kitchenReducer(state: KitchenState, action: KitchenAction): KitchenStat
           weeklyPlan: [
             ...state.weeklyPlan,
             {
-              id: createId("plan"),
+              id: action.entryId ?? createId("plan"),
               recipeId: action.recipeId,
               day: action.day,
               meal: action.meal,
@@ -303,7 +303,7 @@ export function KitchenProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(kitchenReducer, undefined, createInitialKitchenState);
   const [isReady, setIsReady] = useState(false);
   const [storageMode, setStorageMode] = useState<StorageMode>("local");
-  const syncQueueRef = useRef(Promise.resolve());
+  const remoteQueueRef = useRef(Promise.resolve());
 
   useEffect(() => {
     let isCancelled = false;
@@ -336,6 +336,14 @@ export function KitchenProvider({ children }: { children: React.ReactNode }) {
             dispatch({ type: "load", state: coerceKitchenState(payload.state) });
           } else if (localState) {
             dispatch({ type: "load", state: localState });
+
+            await fetch("/api/kitchen", {
+              method: "PUT",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ state: localState }),
+            });
           }
         } else if (localState) {
           dispatch({ type: "load", state: localState });
@@ -363,30 +371,43 @@ export function KitchenProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const snapshot = JSON.stringify(state);
-    window.localStorage.setItem(STORAGE_KEY, snapshot);
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }, [isReady, state]);
 
+  function queueRemoteAction(remoteAction: RemoteKitchenAction, fallbackAction: KitchenAction) {
     if (storageMode !== "supabase") {
+      dispatch(fallbackAction);
       return;
     }
 
-    syncQueueRef.current = syncQueueRef.current
+    remoteQueueRef.current = remoteQueueRef.current
       .catch(() => undefined)
       .then(async () => {
-        const response = await fetch("/api/kitchen", {
-          method: "PUT",
+        const response = await fetch("/api/kitchen/actions", {
+          method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ state }),
+          body: JSON.stringify({ action: remoteAction }),
         });
 
         if (!response.ok) {
-          throw new Error("supabase sync failed");
+          throw new Error("remote action failed");
         }
+
+        const payload = (await response.json()) as { state?: KitchenState | null };
+
+        if (payload.state) {
+          dispatch({ type: "load", state: coerceKitchenState(payload.state) });
+          return;
+        }
+
+        dispatch(fallbackAction);
       })
-      .catch(() => undefined);
-  }, [isReady, state, storageMode]);
+      .catch(() => {
+        dispatch(fallbackAction);
+      });
+  }
 
   return (
     <KitchenContext.Provider
@@ -394,20 +415,54 @@ export function KitchenProvider({ children }: { children: React.ReactNode }) {
         state,
         isReady,
         storageMode,
-        addInventoryItems: (items) => dispatch({ type: "add-inventory", items }),
-        updateInventoryItem: (item) => dispatch({ type: "update-inventory", item }),
-        deleteInventoryItem: (id) => dispatch({ type: "delete-inventory", id }),
-        consumeInventoryItem: (id, mode, amount) => dispatch({ type: "consume-inventory", id, mode, amount }),
-        addShoppingItems: (items) => dispatch({ type: "add-shopping", items }),
-        purchaseShoppingItem: (id, quantity) => dispatch({ type: "purchase-shopping", id, quantity }),
-        removeShoppingItem: (id) => dispatch({ type: "remove-shopping", id }),
-        setRecipeAnalysis: (analysis) => dispatch({ type: "set-analysis", analysis }),
-        addRecipe: (recipe) => dispatch({ type: "add-recipe", recipe }),
-        deleteRecipe: (id) => dispatch({ type: "delete-recipe", id }),
-        scheduleRecipe: (recipeId, day, meal) => dispatch({ type: "schedule-recipe", recipeId, day, meal }),
-        removePlanEntry: (id) => dispatch({ type: "remove-plan-entry", id }),
-        markPlanCooked: (id) => dispatch({ type: "mark-plan-cooked", id }),
-        dismissExpiring: (ids) => dispatch({ type: "dismiss-expiring", ids }),
+        addInventoryItems: (items) => {
+          queueRemoteAction({ type: "add-inventory", items }, { type: "add-inventory", items });
+        },
+        updateInventoryItem: (item) => {
+          queueRemoteAction({ type: "update-inventory", item }, { type: "update-inventory", item });
+        },
+        deleteInventoryItem: (id) => {
+          queueRemoteAction({ type: "delete-inventory", id }, { type: "delete-inventory", id });
+        },
+        consumeInventoryItem: (id, mode, amount) => {
+          queueRemoteAction({ type: "consume-inventory", id, mode, amount }, { type: "consume-inventory", id, mode, amount });
+        },
+        addShoppingItems: (items) => {
+          queueRemoteAction({ type: "add-shopping", items }, { type: "add-shopping", items });
+        },
+        purchaseShoppingItem: (id, quantity) => {
+          queueRemoteAction({ type: "purchase-shopping", id, quantity }, { type: "purchase-shopping", id, quantity });
+        },
+        removeShoppingItem: (id) => {
+          queueRemoteAction({ type: "remove-shopping", id }, { type: "remove-shopping", id });
+        },
+        setRecipeAnalysis: (analysis) => {
+          queueRemoteAction({ type: "set-analysis", analysis }, { type: "set-analysis", analysis });
+        },
+        addRecipe: (recipe) => {
+          queueRemoteAction({ type: "add-recipe", recipe }, { type: "add-recipe", recipe });
+        },
+        deleteRecipe: (id) => {
+          queueRemoteAction({ type: "delete-recipe", id }, { type: "delete-recipe", id });
+        },
+        scheduleRecipe: (recipeId, day, meal) => {
+          const existingEntry = state.weeklyPlan.find((entry) => entry.day === day && entry.meal === meal);
+          const entryId = existingEntry?.id ?? createId("plan");
+
+          queueRemoteAction(
+            { type: "schedule-recipe", recipeId, day, meal, entryId },
+            { type: "schedule-recipe", recipeId, day, meal, entryId },
+          );
+        },
+        removePlanEntry: (id) => {
+          queueRemoteAction({ type: "remove-plan-entry", id }, { type: "remove-plan-entry", id });
+        },
+        markPlanCooked: (id) => {
+          queueRemoteAction({ type: "mark-plan-cooked", id }, { type: "mark-plan-cooked", id });
+        },
+        dismissExpiring: (ids) => {
+          queueRemoteAction({ type: "dismiss-expiring", ids }, { type: "dismiss-expiring", ids });
+        },
       }}
     >
       {children}
