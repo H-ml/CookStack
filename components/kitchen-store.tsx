@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useReducer, useRef, useState } from "react";
 
+import { useAuth } from "@/components/auth-store";
 import { createInitialKitchenState } from "@/components/mock-data";
 import type {
   IngredientDraft,
@@ -69,6 +70,10 @@ interface KitchenContextValue {
 
 const KitchenContext = createContext<KitchenContextValue | null>(null);
 
+function getStorageKey(userId: string | null) {
+  return userId ? `${STORAGE_KEY}:${userId}` : `${STORAGE_KEY}:guest`;
+}
+
 function mergeShoppingItems(currentList: ShoppingListItem[], incomingItems: RecipeGapItem[]) {
   return incomingItems.reduce<ShoppingListItem[]>((collection, item) => {
     if (item.gapQuantity <= 0) {
@@ -96,9 +101,9 @@ function mergeShoppingItems(currentList: ShoppingListItem[], incomingItems: Reci
   }, [...currentList]);
 }
 
-function readLocalKitchenState() {
+function readLocalKitchenState(userId: string | null) {
   try {
-    const storedState = window.localStorage.getItem(STORAGE_KEY);
+    const storedState = window.localStorage.getItem(getStorageKey(userId));
 
     if (!storedState) {
       return null;
@@ -106,7 +111,7 @@ function readLocalKitchenState() {
 
     return coerceKitchenState(JSON.parse(storedState) as Partial<KitchenState>);
   } catch {
-    window.localStorage.removeItem(STORAGE_KEY);
+    window.localStorage.removeItem(getStorageKey(userId));
     return null;
   }
 }
@@ -300,20 +305,47 @@ function kitchenReducer(state: KitchenState, action: KitchenAction): KitchenStat
 }
 
 export function KitchenProvider({ children }: { children: React.ReactNode }) {
+  const { accessToken, isReady: isAuthReady, user } = useAuth();
   const [state, dispatch] = useReducer(kitchenReducer, undefined, createInitialKitchenState);
   const [isReady, setIsReady] = useState(false);
   const [storageMode, setStorageMode] = useState<StorageMode>("local");
   const remoteQueueRef = useRef(Promise.resolve());
+  const scopeRef = useRef<string | null>(null);
+  const userId = user?.id ?? null;
 
   useEffect(() => {
+    if (!isAuthReady) {
+      setIsReady(false);
+      return;
+    }
+
     let isCancelled = false;
 
     async function hydrateKitchenState() {
-      const localState = readLocalKitchenState();
+      setIsReady(false);
+      remoteQueueRef.current = Promise.resolve();
+      scopeRef.current = userId;
+
+      const scopedLocalState = readLocalKitchenState(userId);
+      const guestLocalState = userId ? readLocalKitchenState(null) : null;
+      const bootstrapState = scopedLocalState ?? guestLocalState ?? createInitialKitchenState();
+
+      dispatch({ type: "load", state: bootstrapState });
+
+      if (!userId || !accessToken) {
+        setStorageMode("local");
+        if (!isCancelled) {
+          setIsReady(true);
+        }
+        return;
+      }
 
       try {
         const response = await fetch("/api/kitchen", {
           cache: "no-store",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
         });
 
         if (!response.ok) {
@@ -334,23 +366,30 @@ export function KitchenProvider({ children }: { children: React.ReactNode }) {
 
           if (payload.state) {
             dispatch({ type: "load", state: coerceKitchenState(payload.state) });
-          } else if (localState) {
-            dispatch({ type: "load", state: localState });
+          } else {
+            const seedState = scopedLocalState ?? guestLocalState ?? bootstrapState;
 
-            await fetch("/api/kitchen", {
-              method: "PUT",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({ state: localState }),
-            });
+            if (seedState) {
+              const seedResponse = await fetch("/api/kitchen", {
+                method: "PUT",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${accessToken}`,
+                },
+                body: JSON.stringify({ state: seedState }),
+              });
+
+              if (!seedResponse.ok) {
+                throw new Error("seed sync failed");
+              }
+            }
           }
-        } else if (localState) {
-          dispatch({ type: "load", state: localState });
+        } else {
+          setStorageMode("local");
         }
       } catch {
-        if (!isCancelled && localState) {
-          dispatch({ type: "load", state: localState });
+        if (!isCancelled) {
+          setStorageMode("local");
         }
       } finally {
         if (!isCancelled) {
@@ -364,18 +403,18 @@ export function KitchenProvider({ children }: { children: React.ReactNode }) {
     return () => {
       isCancelled = true;
     };
-  }, []);
+  }, [accessToken, isAuthReady, userId]);
 
   useEffect(() => {
-    if (!isReady) {
+    if (!isReady || scopeRef.current !== userId) {
       return;
     }
 
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [isReady, state]);
+    window.localStorage.setItem(getStorageKey(userId), JSON.stringify(state));
+  }, [isReady, state, userId]);
 
   function queueRemoteAction(remoteAction: RemoteKitchenAction, fallbackAction: KitchenAction) {
-    if (storageMode !== "supabase") {
+    if (storageMode !== "supabase" || !accessToken) {
       dispatch(fallbackAction);
       return;
     }
@@ -387,6 +426,7 @@ export function KitchenProvider({ children }: { children: React.ReactNode }) {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
           },
           body: JSON.stringify({ action: remoteAction }),
         });
@@ -479,3 +519,4 @@ export function useKitchen() {
 
   return context;
 }
+

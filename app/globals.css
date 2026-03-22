@@ -1071,3 +1071,95 @@ textarea {
     align-items: flex-start;
   }
 }
+
+.site-header__right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.auth-cluster {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.auth-button {
+  white-space: nowrap;
+}
+
+.auth-modal {
+  max-width: 480px;
+}
+
+.auth-switcher {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.auth-form {
+  display: grid;
+  gap: 12px;
+}
+
+.auth-helper {
+  margin: 14px 0 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.auth-account-card {
+  padding: 18px;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background: rgba(255, 249, 241, 0.9);
+}
+
+.auth-account-card strong {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.auth-account-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 960px) {
+  .site-header__right {
+    justify-content: space-between;
+  }
+}
+
+@media (max-width: 720px) {
+  .site-header__right,
+  .auth-cluster,
+  .auth-switcher {
+    width: 100%;
+  }
+
+  .auth-button,
+  .auth-cluster .button {
+    width: 100%;
+    justify-content: center;
+  }
+}

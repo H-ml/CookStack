@@ -1,7 +1,8 @@
-import type { Metadata } from "next";
+﻿import type { Metadata } from "next";
 import Link from "next/link";
 
 import { Providers } from "@/app/providers";
+import { AuthPanel } from "@/components/auth-panel";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -38,13 +39,16 @@ export default function RootLayout({
                   </Link>
                 </div>
               </div>
-              <nav className="site-header__nav">
-                {navigation.map((item) => (
-                  <Link key={item.href} className="site-header__link" href={item.href}>
-                    {item.label}
-                  </Link>
-                ))}
-              </nav>
+              <div className="site-header__right">
+                <nav className="site-header__nav">
+                  {navigation.map((item) => (
+                    <Link key={item.href} className="site-header__link" href={item.href}>
+                      {item.label}
+                    </Link>
+                  ))}
+                </nav>
+                <AuthPanel />
+              </div>
             </header>
             <main className="page-content">{children}</main>
           </div>
@@ -53,4 +57,3 @@ export default function RootLayout({
     </html>
   );
 }
-

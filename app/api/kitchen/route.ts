@@ -3,23 +3,24 @@
 import type { KitchenState } from "@/components/kitchen-types";
 import { coerceKitchenState } from "@/lib/kitchen-state";
 import { loadKitchenState, saveKitchenState } from "@/lib/kitchen-supabase";
-import { getSupabaseServerClient, isSupabaseConfigured } from "@/lib/supabase/server";
+import { getSupabaseRequestUser, getSupabaseServerClient, isSupabaseConfigured } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(request: Request) {
   if (!isSupabaseConfigured()) {
     return NextResponse.json({ enabled: false });
   }
 
   const client = getSupabaseServerClient();
+  const user = await getSupabaseRequestUser(request);
 
-  if (!client) {
-    return NextResponse.json({ enabled: false });
+  if (!client || !user) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   try {
-    const state = await loadKitchenState(client);
+    const state = await loadKitchenState(client, user.id);
 
     return NextResponse.json({
       enabled: true,
@@ -39,9 +40,10 @@ export async function PUT(request: Request) {
   }
 
   const client = getSupabaseServerClient();
+  const user = await getSupabaseRequestUser(request);
 
-  if (!client) {
-    return NextResponse.json({ error: "Supabase client unavailable" }, { status: 503 });
+  if (!client || !user) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   try {
@@ -52,7 +54,7 @@ export async function PUT(request: Request) {
     }
 
     const state = coerceKitchenState(payload.state);
-    await saveKitchenState(client, state);
+    await saveKitchenState(client, user.id, state);
 
     return NextResponse.json({ ok: true });
   } catch {

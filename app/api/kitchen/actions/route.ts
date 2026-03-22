@@ -2,7 +2,7 @@
 
 import type { RemoteKitchenAction } from "@/lib/kitchen-remote-actions";
 import { applyKitchenRemoteAction } from "@/lib/kitchen-supabase";
-import { getSupabaseServerClient, isSupabaseConfigured } from "@/lib/supabase/server";
+import { getSupabaseRequestUser, getSupabaseServerClient, isSupabaseConfigured } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
@@ -12,9 +12,10 @@ export async function POST(request: Request) {
   }
 
   const client = getSupabaseServerClient();
+  const user = await getSupabaseRequestUser(request);
 
-  if (!client) {
-    return NextResponse.json({ error: "Supabase client unavailable" }, { status: 503 });
+  if (!client || !user) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   try {
@@ -24,7 +25,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "action is required" }, { status: 400 });
     }
 
-    const state = await applyKitchenRemoteAction(client, payload.action);
+    const state = await applyKitchenRemoteAction(client, user.id, payload.action);
 
     return NextResponse.json({ state });
   } catch {

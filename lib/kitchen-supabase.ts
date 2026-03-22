@@ -21,11 +21,11 @@ import {
 import { coerceKitchenState } from "@/lib/kitchen-state";
 import type { RemoteKitchenAction } from "@/lib/kitchen-remote-actions";
 
-const META_ROW_ID = "default";
 const DELETE_ALL_FILTER_ID = "__keep-none__";
 
 interface InventoryRow {
   id: string;
+  user_id: string | null;
   name: string;
   quantity: number | string;
   unit: InventoryItem["unit"];
@@ -38,6 +38,7 @@ interface InventoryRow {
 
 interface ShoppingListRow {
   id: string;
+  user_id: string | null;
   name: string;
   quantity: number | string;
   unit: ShoppingListItem["unit"];
@@ -47,6 +48,7 @@ interface ShoppingListRow {
 
 interface RecipeRow {
   id: string;
+  user_id: string | null;
   title: string;
   summary: string | null;
   original_text: string;
@@ -56,6 +58,7 @@ interface RecipeRow {
 
 interface WeeklyPlanRow {
   id: string;
+  user_id: string | null;
   recipe_id: string;
   day: WeeklyPlanEntry["day"];
   meal: WeeklyPlanEntry["meal"];
@@ -65,6 +68,7 @@ interface WeeklyPlanRow {
 
 interface KitchenMetaRow {
   id: string;
+  user_id: string | null;
   recipe_analysis: RecipeAnalysis | null;
   dismissed_expiring_ids: string[] | null;
   updated_at: string;
@@ -152,9 +156,10 @@ function mapWeeklyPlanRows(rows: WeeklyPlanRow[]): WeeklyPlanEntry[] {
   }));
 }
 
-function toInventoryRow(item: InventoryItem): InventoryRow {
+function toInventoryRow(userId: string, item: InventoryItem): InventoryRow {
   return {
     id: item.id,
+    user_id: userId,
     name: item.name,
     quantity: item.quantity,
     unit: item.unit,
@@ -166,13 +171,14 @@ function toInventoryRow(item: InventoryItem): InventoryRow {
   };
 }
 
-function toInventoryRows(items: InventoryItem[]): InventoryRow[] {
-  return items.map(toInventoryRow);
+function toInventoryRows(userId: string, items: InventoryItem[]): InventoryRow[] {
+  return items.map((item) => toInventoryRow(userId, item));
 }
 
-function toShoppingRows(items: ShoppingListItem[]): ShoppingListRow[] {
+function toShoppingRows(userId: string, items: ShoppingListItem[]): ShoppingListRow[] {
   return items.map((item) => ({
     id: item.id,
+    user_id: userId,
     name: item.name,
     quantity: item.quantity,
     unit: item.unit,
@@ -181,9 +187,10 @@ function toShoppingRows(items: ShoppingListItem[]): ShoppingListRow[] {
   }));
 }
 
-function toRecipeRow(recipe: RecipeRecord): RecipeRow {
+function toRecipeRow(userId: string, recipe: RecipeRecord): RecipeRow {
   return {
     id: recipe.id,
+    user_id: userId,
     title: recipe.title,
     summary: recipe.summary ?? null,
     original_text: recipe.originalText,
@@ -192,13 +199,14 @@ function toRecipeRow(recipe: RecipeRecord): RecipeRow {
   };
 }
 
-function toRecipeRows(recipes: RecipeRecord[]): RecipeRow[] {
-  return recipes.map(toRecipeRow);
+function toRecipeRows(userId: string, recipes: RecipeRecord[]): RecipeRow[] {
+  return recipes.map((recipe) => toRecipeRow(userId, recipe));
 }
 
-function toWeeklyPlanRows(entries: WeeklyPlanEntry[]): WeeklyPlanRow[] {
+function toWeeklyPlanRows(userId: string, entries: WeeklyPlanEntry[]): WeeklyPlanRow[] {
   return entries.map((entry) => ({
     id: entry.id,
+    user_id: userId,
     recipe_id: entry.recipeId,
     day: entry.day,
     meal: entry.meal,
@@ -207,9 +215,10 @@ function toWeeklyPlanRows(entries: WeeklyPlanEntry[]): WeeklyPlanRow[] {
   }));
 }
 
-function toMetaRow(state: KitchenState): KitchenMetaRow {
+function toMetaRow(userId: string, state: KitchenState): KitchenMetaRow {
   return {
-    id: META_ROW_ID,
+    id: userId,
+    user_id: userId,
     recipe_analysis: state.recipeAnalysis,
     dismissed_expiring_ids: state.dismissedExpiringIds,
     updated_at: new Date().toISOString(),
@@ -266,16 +275,16 @@ function mergeShoppingItems(currentList: ShoppingListItem[], incomingItems: Reci
   }, [...currentList]);
 }
 
-async function deleteAllRows(client: SupabaseClient, table: string) {
-  const { error } = await client.from(table).delete().neq("id", DELETE_ALL_FILTER_ID);
+async function deleteUserRows(client: SupabaseClient, table: string, userId: string) {
+  const { error } = await client.from(table).delete().eq("user_id", userId).neq("id", DELETE_ALL_FILTER_ID);
 
   if (error) {
     throw error;
   }
 }
 
-async function loadInventoryItems(client: SupabaseClient) {
-  const result = await client.from("inventory_items").select("*").order("created_at", { ascending: false });
+async function loadInventoryItems(client: SupabaseClient, userId: string) {
+  const result = await client.from("inventory_items").select("*").eq("user_id", userId).order("created_at", { ascending: false });
 
   if (result.error) {
     throw result.error;
@@ -284,8 +293,8 @@ async function loadInventoryItems(client: SupabaseClient) {
   return mapInventoryRows((result.data ?? []) as InventoryRow[]);
 }
 
-async function loadShoppingListItems(client: SupabaseClient) {
-  const result = await client.from("shopping_list_items").select("*").order("created_at", { ascending: false });
+async function loadShoppingListItems(client: SupabaseClient, userId: string) {
+  const result = await client.from("shopping_list_items").select("*").eq("user_id", userId).order("created_at", { ascending: false });
 
   if (result.error) {
     throw result.error;
@@ -294,8 +303,8 @@ async function loadShoppingListItems(client: SupabaseClient) {
   return mapShoppingRows((result.data ?? []) as ShoppingListRow[]);
 }
 
-async function loadRecipes(client: SupabaseClient) {
-  const result = await client.from("recipes").select("*").order("created_at", { ascending: false });
+async function loadRecipes(client: SupabaseClient, userId: string) {
+  const result = await client.from("recipes").select("*").eq("user_id", userId).order("created_at", { ascending: false });
 
   if (result.error) {
     throw result.error;
@@ -304,8 +313,8 @@ async function loadRecipes(client: SupabaseClient) {
   return mapRecipeRows((result.data ?? []) as RecipeRow[]);
 }
 
-async function loadWeeklyPlan(client: SupabaseClient) {
-  const result = await client.from("weekly_plan_entries").select("*").order("created_at", { ascending: true });
+async function loadWeeklyPlan(client: SupabaseClient, userId: string) {
+  const result = await client.from("weekly_plan_entries").select("*").eq("user_id", userId).order("created_at", { ascending: true });
 
   if (result.error) {
     throw result.error;
@@ -314,8 +323,8 @@ async function loadWeeklyPlan(client: SupabaseClient) {
   return mapWeeklyPlanRows((result.data ?? []) as WeeklyPlanRow[]);
 }
 
-async function loadKitchenMeta(client: SupabaseClient) {
-  const result = await client.from("kitchen_meta").select("*").eq("id", META_ROW_ID).maybeSingle();
+async function loadKitchenMeta(client: SupabaseClient, userId: string) {
+  const result = await client.from("kitchen_meta").select("*").eq("user_id", userId).maybeSingle();
 
   if (result.error) {
     throw result.error;
@@ -324,53 +333,58 @@ async function loadKitchenMeta(client: SupabaseClient) {
   return (result.data ?? null) as KitchenMetaRow | null;
 }
 
-async function replaceInventoryItems(client: SupabaseClient, items: InventoryItem[]) {
-  await deleteAllRows(client, "inventory_items");
+async function replaceInventoryItems(client: SupabaseClient, userId: string, items: InventoryItem[]) {
+  await deleteUserRows(client, "inventory_items", userId);
 
   if (items.length <= 0) {
     return;
   }
 
-  const { error } = await client.from("inventory_items").insert(toInventoryRows(items));
+  const { error } = await client.from("inventory_items").insert(toInventoryRows(userId, items));
 
   if (error) {
     throw error;
   }
 }
 
-async function replaceShoppingListItems(client: SupabaseClient, items: ShoppingListItem[]) {
-  await deleteAllRows(client, "shopping_list_items");
+async function replaceShoppingListItems(client: SupabaseClient, userId: string, items: ShoppingListItem[]) {
+  await deleteUserRows(client, "shopping_list_items", userId);
 
   if (items.length <= 0) {
     return;
   }
 
-  const { error } = await client.from("shopping_list_items").insert(toShoppingRows(items));
+  const { error } = await client.from("shopping_list_items").insert(toShoppingRows(userId, items));
 
   if (error) {
     throw error;
   }
 }
 
-async function replaceWeeklyPlanEntries(client: SupabaseClient, entries: WeeklyPlanEntry[]) {
-  await deleteAllRows(client, "weekly_plan_entries");
+async function replaceWeeklyPlanEntries(client: SupabaseClient, userId: string, entries: WeeklyPlanEntry[]) {
+  await deleteUserRows(client, "weekly_plan_entries", userId);
 
   if (entries.length <= 0) {
     return;
   }
 
-  const { error } = await client.from("weekly_plan_entries").insert(toWeeklyPlanRows(entries));
+  const { error } = await client.from("weekly_plan_entries").insert(toWeeklyPlanRows(userId, entries));
 
   if (error) {
     throw error;
   }
 }
 
-async function upsertKitchenMeta(client: SupabaseClient, updates: Partial<Pick<KitchenState, "recipeAnalysis" | "dismissedExpiringIds">>) {
-  const currentMeta = await loadKitchenMeta(client);
+async function upsertKitchenMeta(
+  client: SupabaseClient,
+  userId: string,
+  updates: Partial<Pick<KitchenState, "recipeAnalysis" | "dismissedExpiringIds">>,
+) {
+  const currentMeta = await loadKitchenMeta(client, userId);
 
   const nextMeta: KitchenMetaRow = {
-    id: META_ROW_ID,
+    id: userId,
+    user_id: userId,
     recipe_analysis: updates.recipeAnalysis !== undefined ? updates.recipeAnalysis : currentMeta?.recipe_analysis ?? null,
     dismissed_expiring_ids:
       updates.dismissedExpiringIds !== undefined
@@ -380,7 +394,7 @@ async function upsertKitchenMeta(client: SupabaseClient, updates: Partial<Pick<K
   };
 
   const { error } = await client.from("kitchen_meta").upsert(nextMeta, {
-    onConflict: "id",
+    onConflict: "user_id",
   });
 
   if (error) {
@@ -388,13 +402,13 @@ async function upsertKitchenMeta(client: SupabaseClient, updates: Partial<Pick<K
   }
 }
 
-export async function loadKitchenState(client: SupabaseClient): Promise<KitchenState | null> {
+export async function loadKitchenState(client: SupabaseClient, userId: string): Promise<KitchenState | null> {
   const [inventoryResult, shoppingResult, recipesResult, weeklyPlanResult, metaResult] = await Promise.all([
-    client.from("inventory_items").select("*").order("created_at", { ascending: false }),
-    client.from("shopping_list_items").select("*").order("created_at", { ascending: false }),
-    client.from("recipes").select("*").order("created_at", { ascending: false }),
-    client.from("weekly_plan_entries").select("*").order("created_at", { ascending: true }),
-    client.from("kitchen_meta").select("*").eq("id", META_ROW_ID).maybeSingle(),
+    client.from("inventory_items").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
+    client.from("shopping_list_items").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
+    client.from("recipes").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
+    client.from("weekly_plan_entries").select("*").eq("user_id", userId).order("created_at", { ascending: true }),
+    client.from("kitchen_meta").select("*").eq("user_id", userId).maybeSingle(),
   ]);
 
   const firstError =
@@ -436,14 +450,14 @@ export async function loadKitchenState(client: SupabaseClient): Promise<KitchenS
   });
 }
 
-export async function saveKitchenState(client: SupabaseClient, state: KitchenState) {
-  await deleteAllRows(client, "weekly_plan_entries");
-  await deleteAllRows(client, "recipes");
-  await deleteAllRows(client, "inventory_items");
-  await deleteAllRows(client, "shopping_list_items");
+export async function saveKitchenState(client: SupabaseClient, userId: string, state: KitchenState) {
+  await deleteUserRows(client, "weekly_plan_entries", userId);
+  await deleteUserRows(client, "recipes", userId);
+  await deleteUserRows(client, "inventory_items", userId);
+  await deleteUserRows(client, "shopping_list_items", userId);
 
   if (state.inventory.length > 0) {
-    const { error } = await client.from("inventory_items").insert(toInventoryRows(state.inventory));
+    const { error } = await client.from("inventory_items").insert(toInventoryRows(userId, state.inventory));
 
     if (error) {
       throw error;
@@ -451,7 +465,7 @@ export async function saveKitchenState(client: SupabaseClient, state: KitchenSta
   }
 
   if (state.shoppingList.length > 0) {
-    const { error } = await client.from("shopping_list_items").insert(toShoppingRows(state.shoppingList));
+    const { error } = await client.from("shopping_list_items").insert(toShoppingRows(userId, state.shoppingList));
 
     if (error) {
       throw error;
@@ -459,7 +473,7 @@ export async function saveKitchenState(client: SupabaseClient, state: KitchenSta
   }
 
   if (state.recipes.length > 0) {
-    const { error } = await client.from("recipes").insert(toRecipeRows(state.recipes));
+    const { error } = await client.from("recipes").insert(toRecipeRows(userId, state.recipes));
 
     if (error) {
       throw error;
@@ -467,15 +481,15 @@ export async function saveKitchenState(client: SupabaseClient, state: KitchenSta
   }
 
   if (state.weeklyPlan.length > 0) {
-    const { error } = await client.from("weekly_plan_entries").insert(toWeeklyPlanRows(state.weeklyPlan));
+    const { error } = await client.from("weekly_plan_entries").insert(toWeeklyPlanRows(userId, state.weeklyPlan));
 
     if (error) {
       throw error;
     }
   }
 
-  const { error: metaError } = await client.from("kitchen_meta").upsert(toMetaRow(state), {
-    onConflict: "id",
+  const { error: metaError } = await client.from("kitchen_meta").upsert(toMetaRow(userId, state), {
+    onConflict: "user_id",
   });
 
   if (metaError) {
@@ -483,19 +497,19 @@ export async function saveKitchenState(client: SupabaseClient, state: KitchenSta
   }
 }
 
-export async function applyKitchenRemoteAction(client: SupabaseClient, action: RemoteKitchenAction) {
+export async function applyKitchenRemoteAction(client: SupabaseClient, userId: string, action: RemoteKitchenAction) {
   switch (action.type) {
     case "seed-state": {
-      await saveKitchenState(client, action.state);
+      await saveKitchenState(client, userId, action.state);
       break;
     }
     case "add-inventory": {
-      const currentInventory = await loadInventoryItems(client);
+      const currentInventory = await loadInventoryItems(client, userId);
       const nextInventory = action.items.reduce((collection, item) => {
         return upsertInventoryItem(collection, buildInventoryItem(item));
       }, currentInventory);
 
-      await replaceInventoryItems(client, nextInventory);
+      await replaceInventoryItems(client, userId, nextInventory);
       break;
     }
     case "update-inventory": {
@@ -504,7 +518,11 @@ export async function applyKitchenRemoteAction(client: SupabaseClient, action: R
         updatedAt: new Date().toISOString(),
       };
 
-      const { error } = await client.from("inventory_items").update(toInventoryRow(nextItem)).eq("id", action.item.id);
+      const { error } = await client
+        .from("inventory_items")
+        .update(toInventoryRow(userId, nextItem))
+        .eq("id", action.item.id)
+        .eq("user_id", userId);
 
       if (error) {
         throw error;
@@ -512,7 +530,7 @@ export async function applyKitchenRemoteAction(client: SupabaseClient, action: R
       break;
     }
     case "delete-inventory": {
-      const { error } = await client.from("inventory_items").delete().eq("id", action.id);
+      const { error } = await client.from("inventory_items").delete().eq("id", action.id).eq("user_id", userId);
 
       if (error) {
         throw error;
@@ -520,7 +538,7 @@ export async function applyKitchenRemoteAction(client: SupabaseClient, action: R
       break;
     }
     case "consume-inventory": {
-      const currentInventory = await loadInventoryItems(client);
+      const currentInventory = await loadInventoryItems(client, userId);
       const nextInventory: InventoryItem[] = currentInventory.map((item) => {
         if (item.id !== action.id) {
           return item;
@@ -550,20 +568,20 @@ export async function applyKitchenRemoteAction(client: SupabaseClient, action: R
         };
       });
 
-      await replaceInventoryItems(client, nextInventory);
+      await replaceInventoryItems(client, userId, nextInventory);
       break;
     }
     case "add-shopping": {
-      const currentShopping = await loadShoppingListItems(client);
+      const currentShopping = await loadShoppingListItems(client, userId);
       const nextShopping = mergeShoppingItems(currentShopping, action.items);
 
-      await replaceShoppingListItems(client, nextShopping);
+      await replaceShoppingListItems(client, userId, nextShopping);
       break;
     }
     case "purchase-shopping": {
       const [currentShopping, currentInventory] = await Promise.all([
-        loadShoppingListItems(client),
-        loadInventoryItems(client),
+        loadShoppingListItems(client, userId),
+        loadInventoryItems(client, userId),
       ]);
       const targetItem = currentShopping.find((item) => item.id === action.id);
 
@@ -587,13 +605,17 @@ export async function applyKitchenRemoteAction(client: SupabaseClient, action: R
       const nextShopping = currentShopping.filter((item) => item.id !== action.id);
 
       await Promise.all([
-        replaceInventoryItems(client, nextInventory),
-        replaceShoppingListItems(client, nextShopping),
+        replaceInventoryItems(client, userId, nextInventory),
+        replaceShoppingListItems(client, userId, nextShopping),
       ]);
       break;
     }
     case "remove-shopping": {
-      const { error } = await client.from("shopping_list_items").delete().eq("id", action.id);
+      const { error } = await client
+        .from("shopping_list_items")
+        .delete()
+        .eq("id", action.id)
+        .eq("user_id", userId);
 
       if (error) {
         throw error;
@@ -601,13 +623,13 @@ export async function applyKitchenRemoteAction(client: SupabaseClient, action: R
       break;
     }
     case "set-analysis": {
-      await upsertKitchenMeta(client, {
+      await upsertKitchenMeta(client, userId, {
         recipeAnalysis: action.analysis,
       });
       break;
     }
     case "add-recipe": {
-      const { error } = await client.from("recipes").insert(toRecipeRow(action.recipe));
+      const { error } = await client.from("recipes").insert(toRecipeRow(userId, action.recipe));
 
       if (error) {
         throw error;
@@ -615,7 +637,7 @@ export async function applyKitchenRemoteAction(client: SupabaseClient, action: R
       break;
     }
     case "delete-recipe": {
-      const { error } = await client.from("recipes").delete().eq("id", action.id);
+      const { error } = await client.from("recipes").delete().eq("id", action.id).eq("user_id", userId);
 
       if (error) {
         throw error;
@@ -623,7 +645,7 @@ export async function applyKitchenRemoteAction(client: SupabaseClient, action: R
       break;
     }
     case "schedule-recipe": {
-      const currentPlan = await loadWeeklyPlan(client);
+      const currentPlan = await loadWeeklyPlan(client, userId);
       const existingEntry = currentPlan.find((entry) => entry.day === action.day && entry.meal === action.meal);
 
       if (existingEntry) {
@@ -633,7 +655,8 @@ export async function applyKitchenRemoteAction(client: SupabaseClient, action: R
             recipe_id: action.recipeId,
             cooked_at: null,
           })
-          .eq("id", existingEntry.id);
+          .eq("id", existingEntry.id)
+          .eq("user_id", userId);
 
         if (error) {
           throw error;
@@ -641,6 +664,7 @@ export async function applyKitchenRemoteAction(client: SupabaseClient, action: R
       } else {
         const { error } = await client.from("weekly_plan_entries").insert({
           id: action.entryId ?? createId("plan"),
+          user_id: userId,
           recipe_id: action.recipeId,
           day: action.day,
           meal: action.meal,
@@ -655,7 +679,7 @@ export async function applyKitchenRemoteAction(client: SupabaseClient, action: R
       break;
     }
     case "remove-plan-entry": {
-      const { error } = await client.from("weekly_plan_entries").delete().eq("id", action.id);
+      const { error } = await client.from("weekly_plan_entries").delete().eq("id", action.id).eq("user_id", userId);
 
       if (error) {
         throw error;
@@ -664,9 +688,9 @@ export async function applyKitchenRemoteAction(client: SupabaseClient, action: R
     }
     case "mark-plan-cooked": {
       const [currentPlan, recipes, currentInventory] = await Promise.all([
-        loadWeeklyPlan(client),
-        loadRecipes(client),
-        loadInventoryItems(client),
+        loadWeeklyPlan(client, userId),
+        loadRecipes(client, userId),
+        loadInventoryItems(client, userId),
       ]);
       const planEntry = currentPlan.find((entry) => entry.id === action.id);
 
@@ -681,18 +705,24 @@ export async function applyKitchenRemoteAction(client: SupabaseClient, action: R
       }
 
       const nextInventory = consumeIngredientsFromInventory(currentInventory, recipe.ingredients);
+      await replaceInventoryItems(client, userId, nextInventory);
 
-      await Promise.all([
-        replaceInventoryItems(client, nextInventory),
-        client.from("weekly_plan_entries").update({ cooked_at: new Date().toISOString() }).eq("id", action.id),
-      ]);
+      const { error } = await client
+        .from("weekly_plan_entries")
+        .update({ cooked_at: new Date().toISOString() })
+        .eq("id", action.id)
+        .eq("user_id", userId);
+
+      if (error) {
+        throw error;
+      }
       break;
     }
     case "dismiss-expiring": {
-      const currentMeta = await loadKitchenMeta(client);
+      const currentMeta = await loadKitchenMeta(client, userId);
       const nextIds = Array.from(new Set([...(currentMeta?.dismissed_expiring_ids ?? []), ...action.ids]));
 
-      await upsertKitchenMeta(client, {
+      await upsertKitchenMeta(client, userId, {
         dismissedExpiringIds: nextIds,
       });
       break;
@@ -701,6 +731,5 @@ export async function applyKitchenRemoteAction(client: SupabaseClient, action: R
       break;
   }
 
-  return await loadKitchenState(client);
+  return await loadKitchenState(client, userId);
 }
-
