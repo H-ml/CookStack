@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { createContext, useContext, useEffect, useReducer, useState } from "react";
+import { createContext, useContext, useEffect, useReducer, useRef, useState } from "react";
 
 import { createInitialKitchenState } from "@/components/mock-data";
 import type {
@@ -23,10 +23,12 @@ import {
   roundQuantity,
   upsertInventoryItem,
 } from "@/components/kitchen-utils";
+import { coerceKitchenState } from "@/lib/kitchen-state";
 
 const STORAGE_KEY = "pantry-pilot-state-v2";
 
 type ConsumeMode = "all" | "half" | "custom";
+type StorageMode = "local" | "supabase";
 
 type KitchenAction =
   | { type: "load"; state: KitchenState }
@@ -48,6 +50,7 @@ type KitchenAction =
 interface KitchenContextValue {
   state: KitchenState;
   isReady: boolean;
+  storageMode: StorageMode;
   addInventoryItems: (items: IngredientDraft[]) => void;
   updateInventoryItem: (item: InventoryItem) => void;
   deleteInventoryItem: (id: string) => void;
@@ -93,17 +96,19 @@ function mergeShoppingItems(currentList: ShoppingListItem[], incomingItems: Reci
   }, [...currentList]);
 }
 
-function coerceKitchenState(rawState: Partial<KitchenState> | null | undefined): KitchenState {
-  const initialState = createInitialKitchenState();
+function readLocalKitchenState() {
+  try {
+    const storedState = window.localStorage.getItem(STORAGE_KEY);
 
-  return {
-    inventory: rawState?.inventory ?? initialState.inventory,
-    shoppingList: rawState?.shoppingList ?? initialState.shoppingList,
-    recipeAnalysis: rawState?.recipeAnalysis ?? initialState.recipeAnalysis,
-    recipes: rawState?.recipes ?? initialState.recipes,
-    weeklyPlan: rawState?.weeklyPlan ?? initialState.weeklyPlan,
-    dismissedExpiringIds: rawState?.dismissedExpiringIds ?? initialState.dismissedExpiringIds,
-  };
+    if (!storedState) {
+      return null;
+    }
+
+    return coerceKitchenState(JSON.parse(storedState) as Partial<KitchenState>);
+  } catch {
+    window.localStorage.removeItem(STORAGE_KEY);
+    return null;
+  }
 }
 
 function kitchenReducer(state: KitchenState, action: KitchenAction): KitchenState {
@@ -297,21 +302,60 @@ function kitchenReducer(state: KitchenState, action: KitchenAction): KitchenStat
 export function KitchenProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(kitchenReducer, undefined, createInitialKitchenState);
   const [isReady, setIsReady] = useState(false);
+  const [storageMode, setStorageMode] = useState<StorageMode>("local");
+  const syncQueueRef = useRef(Promise.resolve());
 
   useEffect(() => {
-    try {
-      const storedState = window.localStorage.getItem(STORAGE_KEY);
-      if (storedState) {
-        dispatch({
-          type: "load",
-          state: coerceKitchenState(JSON.parse(storedState) as Partial<KitchenState>),
+    let isCancelled = false;
+
+    async function hydrateKitchenState() {
+      const localState = readLocalKitchenState();
+
+      try {
+        const response = await fetch("/api/kitchen", {
+          cache: "no-store",
         });
+
+        if (!response.ok) {
+          throw new Error("kitchen bootstrap failed");
+        }
+
+        const payload = (await response.json()) as {
+          enabled?: boolean;
+          state?: KitchenState | null;
+        };
+
+        if (isCancelled) {
+          return;
+        }
+
+        if (payload.enabled) {
+          setStorageMode("supabase");
+
+          if (payload.state) {
+            dispatch({ type: "load", state: coerceKitchenState(payload.state) });
+          } else if (localState) {
+            dispatch({ type: "load", state: localState });
+          }
+        } else if (localState) {
+          dispatch({ type: "load", state: localState });
+        }
+      } catch {
+        if (!isCancelled && localState) {
+          dispatch({ type: "load", state: localState });
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsReady(true);
+        }
       }
-    } catch {
-      window.localStorage.removeItem(STORAGE_KEY);
-    } finally {
-      setIsReady(true);
     }
+
+    void hydrateKitchenState();
+
+    return () => {
+      isCancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -319,14 +363,37 @@ export function KitchenProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [isReady, state]);
+    const snapshot = JSON.stringify(state);
+    window.localStorage.setItem(STORAGE_KEY, snapshot);
+
+    if (storageMode !== "supabase") {
+      return;
+    }
+
+    syncQueueRef.current = syncQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        const response = await fetch("/api/kitchen", {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ state }),
+        });
+
+        if (!response.ok) {
+          throw new Error("supabase sync failed");
+        }
+      })
+      .catch(() => undefined);
+  }, [isReady, state, storageMode]);
 
   return (
     <KitchenContext.Provider
       value={{
         state,
         isReady,
+        storageMode,
         addInventoryItems: (items) => dispatch({ type: "add-inventory", items }),
         updateInventoryItem: (item) => dispatch({ type: "update-inventory", item }),
         deleteInventoryItem: (id) => dispatch({ type: "delete-inventory", id }),

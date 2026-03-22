@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useState } from "react";
-import { BookOpenText, CalendarRange, Package2 } from "lucide-react";
+import { BookOpenText, CalendarRange, DatabaseZap, Package2 } from "lucide-react";
 
 import { InventoryTab } from "@/components/inventory-tab";
 import { RecipeManagerTab } from "@/components/recipe-manager-tab";
@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 type DashboardTab = "inventory" | "recipes" | "plan";
 
 export function HomeScreen() {
-  const { state } = useKitchen();
+  const { state, storageMode } = useKitchen();
   const [activeTab, setActiveTab] = useState<DashboardTab>("inventory");
   const [openRecipeComposerSignal, setOpenRecipeComposerSignal] = useState(0);
   const [plannerSelectedRecipeId, setPlannerSelectedRecipeId] = useState<string | null>(state.recipes[0]?.id ?? null);
@@ -44,6 +44,10 @@ export function HomeScreen() {
           <p className="workspace-header__summary">
             库存负责真实余量，食谱负责结构化知识，周计划负责形成采购与消耗动作。
           </p>
+          <div className="selected-recipe-note selected-recipe-note--storage">
+            <DatabaseZap size={16} />
+            <span>{storageMode === "supabase" ? "当前数据模式：Supabase 云端同步" : "当前数据模式：本地浏览器存储"}</span>
+          </div>
         </div>
         <div className="workspace-header__stats">
           <article className="metric-card">
