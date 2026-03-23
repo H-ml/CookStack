@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { createContext, useContext, useEffect, useReducer, useRef, useState } from "react";
 
@@ -69,6 +69,15 @@ interface KitchenContextValue {
 }
 
 const KitchenContext = createContext<KitchenContextValue | null>(null);
+
+const EMPTY_KITCHEN_STATE: KitchenState = {
+  inventory: [],
+  shoppingList: [],
+  recipeAnalysis: null,
+  recipes: [],
+  weeklyPlan: [],
+  dismissedExpiringIds: [],
+};
 
 function getStorageKey(userId: string | null) {
   return userId ? `${STORAGE_KEY}:${userId}` : `${STORAGE_KEY}:guest`;
@@ -328,6 +337,7 @@ export function KitchenProvider({ children }: { children: React.ReactNode }) {
 
       const scopedLocalState = readLocalKitchenState(userId);
       const guestLocalState = userId ? readLocalKitchenState(null) : null;
+      const emptyCloudState = EMPTY_KITCHEN_STATE;
       const bootstrapState = scopedLocalState ?? guestLocalState ?? createInitialKitchenState();
 
       dispatch({ type: "load", state: bootstrapState });
@@ -367,9 +377,11 @@ export function KitchenProvider({ children }: { children: React.ReactNode }) {
           if (payload.state) {
             dispatch({ type: "load", state: coerceKitchenState(payload.state) });
           } else {
-            const seedState = scopedLocalState ?? guestLocalState ?? bootstrapState;
+            const seedState = scopedLocalState ?? guestLocalState;
 
-            if (seedState) {
+            if (!seedState) {
+              dispatch({ type: "load", state: emptyCloudState });
+            } else {
               const seedResponse = await fetch("/api/kitchen", {
                 method: "PUT",
                 headers: {
@@ -380,8 +392,12 @@ export function KitchenProvider({ children }: { children: React.ReactNode }) {
               });
 
               if (!seedResponse.ok) {
-                throw new Error("seed sync failed");
+                console.error("Failed to seed initial Supabase kitchen state", seedResponse.status);
+                dispatch({ type: "load", state: emptyCloudState });
+                return;
               }
+
+              dispatch({ type: "load", state: seedState });
             }
           }
         } else {
